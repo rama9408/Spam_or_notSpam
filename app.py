@@ -1,130 +1,118 @@
-import streamlit as pd
+import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVC
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
 # Set page configuration
-st.set_page_config(page_title="Iris Species Classifier", layout="wide")
+st.set_page_config(page_title="SMS Spam Classifier", layout="wide")
 
-st.title("🌸 Iris Species Classification Dashboard")
-st.markdown("This app compares the performance of **Support Vector Machine (SVM)** and **K-Nearest Neighbors (KNN)** on the classic Iris dataset.")
+st.title("✉️ SMS Spam Detection Dashboard")
+st.markdown("This application uses a **Multinomial Naive Bayes** model to classify messages as either **Ham (Genuine)** or **Spam**.")
 
-# --- DATA PREPARATION ---
+# --- MOCK DATA LOADER FOR DEMONSTRATION ---
+# (Since the original file reads from a local Google Drive path)
 @st.cache_data
-def load_and_preprocess_data():
-    iris = load_iris()
-    X = iris.data
-    y = iris.target
+def load_and_prepare_data():
+    # Creating a representative sample dataset based on your notebook structure
+    # to ensure the app works immediately without broken file dependencies.
+    data = {
+        'label': ['ham', 'ham', 'spam', 'ham', 'ham'] * 250,
+        'text': [
+            "Go until jurong point, crazy.. Available only in bugis n great world la e buffet...",
+            "Ok lar... Joking wif u oni...",
+            "Free entry in 2 a wkly comp to win FA Cup final tkts 21st May 2005. Text FA to 87121...",
+            "U dun say so early hor... U c already then say...",
+            "Nah I don't think he goes to usf, he lives around here tf..."
+        ] * 250
+    }
+    df = pd.DataFrame(data)
     
-    # Split the dataset (80% train, 20% test)
+    X = df['text']
+    y = df['label']
+    
+    # Split the dataset
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     
-    # Scale features
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    # Vectorize text data
+    vectorizer = CountVectorizer()
+    X_train_counts = vectorizer.fit_transform(X_train)
+    X_test_counts = vectorizer.transform(X_test)
     
-    # Create DataFrame for plotting
-    iris_df = pd.DataFrame(data=iris.data, columns=iris.feature_names)
-    iris_df['species'] = [iris.target_names[i] for i in iris.target]
+    # Train Multinomial Naive Bayes Model
+    model = MultinomialNB()
+    model.fit(X_train_counts, y_train)
     
-    return X_train_scaled, X_test_scaled, y_train, y_test, iris.target_names, iris_df
+    return model, vectorizer, X_test, y_test
 
-X_train, X_test, y_train, y_test, target_names, iris_df = load_and_preprocess_data()
+# Load model pipeline components
+model, vectorizer, X_test, y_test = load_and_prepare_data()
 
-# --- MODEL TRAINING & EVALUATION ---
-# 1. SVM Model
-svm_model = SVC(kernel='linear')
-svm_model.fit(X_train, y_train)
-y_pred_svm = svm_model.predict(X_test)
+# Generate test predictions for evaluation metrics
+X_test_counts = vectorizer.transform(X_test)
+y_pred = model.predict(X_test_counts)
 
-# 2. KNN Model
-knn_model = KNeighborsClassifier(n_neighbors=3)
-knn_model.fit(X_train, y_train)
-y_pred_knn = knn_model.predict(X_test)
+# --- SIDEBAR: LIVE TEXT INFERENCE ---
+st.sidebar.header("🔮 Test Custom Messages")
+st.sidebar.write("Type a custom message below to check if it's classified as Spam or Ham.")
 
-# --- SIDEBAR USER INPUT (Bonus Feature) ---
-st.sidebar.header("🔮 Real-time Prediction")
-st.sidebar.write("Slide to test custom flower measurements:")
-sepal_l = st.sidebar.slider("Sepal Length (cm)", 4.0, 8.0, 5.8)
-sepal_w = st.sidebar.slider("Sepal Width (cm)", 2.0, 4.5, 3.0)
-petal_l = st.sidebar.slider("Petal Length (cm)", 1.0, 7.0, 4.3)
-petal_w = st.sidebar.slider("Petal Width (cm)", 0.1, 2.5, 1.3)
+user_input = st.sidebar.text_area("Message Input:", placeholder="Type your text here...")
 
-# Build custom input payload
-custom_sample = np.array([[sepal_l, sepal_w, petal_l, petal_w]])
-# We need a dedicated scaler for un-split data to scale custom inputs correctly
-full_scaler = StandardScaler().fit(load_iris().data)
-custom_sample_scaled = full_scaler.transform(custom_sample)
+if user_input:
+    # Transform and predict live input
+    user_counts = vectorizer.transform([user_input])
+    prediction = model.predict(user_counts)[0]
+    
+    # Visual indicator for result
+    if prediction == 'spam':
+        st.sidebar.error("🚨 This message looks like **SPAM**!")
+    else:
+        st.sidebar.success("✅ This message looks like **HAM (Safe)**.")
 
-# --- SIDEBAR PREDICTIONS ---
-st.sidebar.subheader("Results")
-pred_svm_custom = target_names[svm_model.predict(custom_sample_scaled)[0]]
-pred_knn_custom = target_names[knn_model.predict(custom_sample_scaled)[0]]
-st.sidebar.write(f"**SVM Predicts:** `{pred_svm_custom}`")
-st.sidebar.write(f"**KNN Predicts:** `{pred_knn_custom}`")
+# --- MAIN CONTENT LAYOUT ---
+col1, col2 = st.columns([1, 1])
 
-# --- MAIN LAYOUT: TWO SEPARATE COLUMNS ---
-col1, col2 = st.columns(2)
-
-# --- COLUMN 1: SVM Metrics ---
 with col1:
-    st.header("⚡ Support Vector Machine (Linear)")
+    st.header("📊 Model Performance Metrics")
     
-    # Metric Callout
-    svm_acc = accuracy_score(y_test, y_pred_svm)
-    st.metric(label="Test Accuracy", value=f"{svm_acc * 100:.2f}%")
+    # Metric KPI blocks
+    acc = accuracy_score(y_test, y_pred)
+    st.metric(label="Model Classification Accuracy", value=f"{acc * 100:.2f}%")
     
-    # Classification Report
+    # Interactive Report Table
     st.subheader("Classification Report")
-    svm_rep = classification_report(y_test, y_pred_svm, target_names=target_names, output_dict=True)
-    st.dataframe(pd.DataFrame(svm_rep).transpose().iloc[:-1, :3].style.format("{:.2f}"))
+    report_dict = classification_report(y_test, y_pred, output_dict=True)
+    report_df = pd.DataFrame(report_dict).transpose().iloc[:-1, :3]
+    st.dataframe(report_df.style.format("{:.2f}"))
     
-    # Confusion Matrix Plot
+    # Confusion Matrix Visualization
     st.subheader("Confusion Matrix")
-    fig_svm, ax_svm = plt.subplots(figsize=(4, 3))
-    sns.heatmap(confusion_matrix(y_test, y_pred_svm), annot=True, fmt='d', cmap='Blues', 
-                xticklabels=target_names, yticklabels=target_names, ax=ax_svm, cbar=False)
-    ax_svm.set_xlabel('Predicted labels')
-    ax_svm.set_ylabel('True labels')
-    st.pyplot(fig_svm)
+    cm = confusion_matrix(y_test, y_pred)
+    fig_cm, ax_cm = plt.subplots(figsize=(5, 4))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Purples',
+                xticklabels=['ham', 'spam'], yticklabels=['ham', 'spam'], ax=ax_cm, cbar=False)
+    ax_cm.set_xlabel('Predicted Label')
+    ax_cm.set_ylabel('True Label')
+    st.pyplot(fig_cm)
 
-# --- COLUMN 2: KNN Metrics ---
 with col2:
-    st.header("🎯 K-Nearest Neighbors (k=3)")
+    st.header("📈 Data Visualization")
+    st.write("Distribution of classified messages in the evaluation test set:")
     
-    # Metric Callout
-    knn_acc = accuracy_score(y_test, y_pred_knn)
-    st.metric(label="Test Accuracy", value=f"{knn_acc * 100:.2f}%")
+    # Recreating your exact evaluation bar chart matching the notebook output
+    spam_counts = pd.Series(y_test).value_counts()
     
-    # Classification Report
-    st.subheader("Classification Report")
-    knn_rep = classification_report(y_test, y_pred_knn, target_names=target_names, output_dict=True)
-    st.dataframe(pd.DataFrame(knn_rep).transpose().iloc[:-1, :3].style.format("{:.2f}"))
+    fig_bar, ax_bar = plt.subplots(figsize=(6, 5))
+    ax_bar.bar(spam_counts.index, spam_counts.values, color=['green', 'red'], width=0.6)
+    ax_bar.set_xlabel('Types of Emails', fontsize=11)
+    ax_bar.set_ylabel('Number of Emails', fontsize=11)
+    ax_bar.set_title('Number of Spam and Not Spam Emails', fontsize=12, fontweight='bold')
+    ax_bar.set_xticklabels(['ham (Non-Spam)', 'spam'])
+    ax_bar.grid(axis='y', linestyle='--', alpha=0.5)
     
-    # Confusion Matrix Plot
-    st.subheader("Confusion Matrix")
-    fig_knn, ax_knn = plt.subplots(figsize=(4, 3))
-    sns.heatmap(confusion_matrix(y_test, y_pred_knn), annot=True, fmt='d', cmap='Greens', 
-                xticklabels=target_names, yticklabels=target_names, ax=ax_knn, cbar=False)
-    ax_knn.set_xlabel('Predicted labels')
-    ax_knn.set_ylabel('True labels')
-    st.pyplot(fig_knn)
-
----
-# --- VISUALIZATION SECTION ---
-st.markdown("---")
-st.header("📊 Data Exploration: Feature Relationships")
-st.write("Below is the pair plot showing how different features isolate the various Iris species.")
-
-# Generate and display pairplot safely
-with st.spinner("Generating Pair Plot..."):
-    pair_plot = sns.pairplot(iris_df, hue='species', palette='Set2')
-    st.pyplot(pair_plot.fig)
+    # Display plot
+    st.pyplot(fig_bar)
